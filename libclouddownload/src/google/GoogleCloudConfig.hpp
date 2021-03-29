@@ -9,9 +9,7 @@ class GoogleCloudConfig : public ICloudConfig {
   // ICloudConfig interface
  public:
   const QString& apiKey() const override;
-  ;
   const QString& accessToken() const override;
-  ;
 
  private:
   QString _apiKey;
