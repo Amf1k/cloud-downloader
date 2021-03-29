@@ -3,6 +3,8 @@
 #include <CloudDownloaderFactory.hpp>
 #include <IUploadHandler.hpp>
 #include <QDebug>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <algorithm>
 
 using namespace Amfik::libclouddownloader;
@@ -19,10 +21,65 @@ void Amfik::clouddownloader::DownloaderModel::upload(const QUrl& fileuri) {
     qWarning() << fileuri << "is not local file";
     return;
   }
-  auto filePath = fileuri.toLocalFile();
+  //Циклы, которые могут быть достаточно огромными + в теории не понятно что там
+  //внутри у библиотеки происходит и все такое. Кароче моветон такое в UI потоке
+  //делать... Ну и вообще из-за этого почти сразу подвисает интерфейс + частые
+  //обновления элементов + куча сингналов.. Кароче это явно не продакшн код :D
+  QFileInfo fileInfo(fileuri.toLocalFile());
+  if (fileInfo.isDir()) {
+    QDirIterator it(fileInfo.absolutePath(), QDir::Files,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+      startUpload(it.next());
+    }
+  } else if (fileInfo.isFile()) {
+    startUpload(fileInfo.absoluteFilePath());
+    return;
+  }
+  qWarning() << "Is not a file or dir, sorry";
+}
+
+int Amfik::clouddownloader::DownloaderModel::rowCount(
+    const QModelIndex& parent) const {
+  return _uploadFiles.count();
+}
+
+QVariant Amfik::clouddownloader::DownloaderModel::data(const QModelIndex& index,
+                                                       int role) const {
+  if (!index.isValid())
+    return QVariant();
+  auto filePath = _uploadFiles.value(index.row());
+  switch (role) {
+    case Name:
+      return filePath.name;
+    case UploadProgress:
+      return filePath.uploadProgress;
+    case IsFinished:
+      return filePath.isFinished;
+    case isErrored:
+      return filePath.isErrored;
+  }
+  return QVariant{};
+}
+
+QHash<int, QByteArray> Amfik::clouddownloader::DownloaderModel::roleNames()
+    const {
+  static QHash<int, QByteArray> rolesNamesMap{
+      {Roles::Name, "name"},
+      {Roles::UploadProgress, "uploadProgress"},
+      {Roles::IsFinished, "isFinished"},
+      {Roles::isErrored, "isErrored"}};
+  return rolesNamesMap;
+}
+
+void Amfik::clouddownloader::DownloaderModel::startUpload(
+    const QString& filePath) {
   auto handler = _pCloudDownloader->upload(
       UploadParams{UploadParams::UploadType::Media, filePath});
   //Ну тут тупое дублирование + в целом какая-то куча кода, я все понимаю, но...
+  //На самом делу тут все нужно вынести в какой-то сервис/менеджер и вообще все
+  //обрабатывать в одном потоке такая себе идея, но тут я делал это из-за
+  //упрощения и отсутсвия времени
   connect(handler.get(), &IUploadHandler::finished, this, [this, filePath] {
     auto it = std::find_if(
         _uploadFiles.begin(), _uploadFiles.end(),
@@ -71,39 +128,6 @@ void Amfik::clouddownloader::DownloaderModel::upload(const QUrl& fileuri) {
   beginInsertRows(QModelIndex(), _uploadFiles.size(), _uploadFiles.size());
   _uploadFiles.append(FileInfoUpload{filePath, 0, false, false});
   endInsertRows();
-}
-
-int Amfik::clouddownloader::DownloaderModel::rowCount(
-    const QModelIndex& parent) const {
-  return _uploadFiles.count();
-}
-
-QVariant Amfik::clouddownloader::DownloaderModel::data(const QModelIndex& index,
-                                                       int role) const {
-  if (!index.isValid())
-    return QVariant();
-  auto filePath = _uploadFiles.value(index.row());
-  switch (role) {
-    case Name:
-      return filePath.name;
-    case UploadProgress:
-      return filePath.uploadProgress;
-    case IsFinished:
-      return filePath.isFinished;
-    case isErrored:
-      return filePath.isErrored;
-  }
-  return QVariant{};
-}
-
-QHash<int, QByteArray> Amfik::clouddownloader::DownloaderModel::roleNames()
-    const {
-  static QHash<int, QByteArray> rolesNamesMap{
-      {Roles::Name, "name"},
-      {Roles::UploadProgress, "uploadProgress"},
-      {Roles::IsFinished, "isFinished"},
-      {Roles::isErrored, "isErrored"}};
-  return rolesNamesMap;
 }
 
 void Amfik::clouddownloader::DownloaderModel::updateRolesChanging(

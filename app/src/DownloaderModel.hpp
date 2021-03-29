@@ -40,6 +40,7 @@ class DownloaderModel : public QAbstractListModel {
   QHash<int, QByteArray> roleNames() const override;
 
  protected:
+  void startUpload(const QString& filePath);
   void updateRolesChanging(const QVector<int>& changedRoles, int row);
   int toRow(QList<FileInfoUpload>::Iterator it);
 
